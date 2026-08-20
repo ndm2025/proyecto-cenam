@@ -26,6 +26,13 @@ PAISES_CODIGO = {
     "NICARAGUA": "NI",
     "COSTA RICA": "CR",
 }
+SOC_PAISES = {
+    "GT": "GUATEMALA",
+    "SV": "EL SALVADOR",
+    "HN": "HONDURAS",
+    "NI": "NICARAGUA",
+    "CR": "COSTA RICA",
+}
 
 # ============================================================
 # COLUMNAS SAP - SOLPED / PEDIDOS
