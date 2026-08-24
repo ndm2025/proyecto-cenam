@@ -174,14 +174,23 @@ def clean_solped(df: pd.DataFrame, pais: str) -> tuple[pd.DataFrame, str]:
     return df, msg
 
 
+ORGC_PAIS_MAP = {
+    "GT02": "GUATEMALA",
+    "SV02": "EL SALVADOR",
+    "HN02": "HONDURAS",
+    "NI02": "NICARAGUA",
+    "CR02": "COSTA RICA",
+}
+
+
 def read_me5a(filepath: Path) -> pd.DataFrame:
     """
     Lee archivo ME5A (SAP) y extrae SOLP + POS, columna B, Material,
-    Texto breve, y clasifica TIPO DE COMPRA.
+    Texto breve, OrgC (país), Mon., Valor total, y todas las columnas
+    del formato lineas nuevas.
     
     Returns:
-        DataFrame con columnas: SOLP + POS, Sol.pedido, Pos., B, eliminada,
-        Material, Texto breve, TIPO DE COMPRA
+        DataFrame con columnas del formato lineas nuevas.
     """
     rows = []
     with open(filepath, "r", encoding="latin-1") as f:
@@ -190,26 +199,56 @@ def read_me5a(filepath: Path) -> pd.DataFrame:
             if not stripped or stripped.startswith("*") or "Sol.pedido" in stripped:
                 continue
             parts = line.split("\t")
-            tabs_clean = [p.strip() for p in parts]
-            if len(tabs_clean) < 14:
+            tabs = [p.strip() for p in parts]
+            if len(tabs) < 14:
                 continue
-            solped = tabs_clean[2]
-            pos = tabs_clean[3]
-            b_val = tabs_clean[4]
-            material = tabs_clean[13] if len(tabs_clean) > 13 else ""
-            texto_breve = tabs_clean[14] if len(tabs_clean) > 14 else ""
-            if solped.isdigit() and len(solped) == 10 and pos.isdigit():
-                tipo = _clasificar_tipo_compra(material, texto_breve)
-                rows.append({
-                    "Sol.pedido": solped,
-                    "Pos.": pos,
-                    "SOLP + POS": solped + pos,
-                    "B": b_val,
-                    "eliminada": b_val == "X",
-                    "Material": material,
-                    "Texto breve": texto_breve,
-                    "TIPO DE COMPRA": tipo,
-                })
+
+            def _g(idx):
+                return tabs[idx] if len(tabs) > idx else ""
+
+            solped = _g(2)
+            pos = _g(3)
+            if not (solped.isdigit() and len(solped) == 10 and pos.isdigit()):
+                continue
+
+            b_val = _g(4)
+            material = _g(13)
+            texto_breve = _g(14)
+            orgc = _g(26)
+            pais = ORGC_PAIS_MAP.get(orgc, orgc)
+            tipo = _clasificar_tipo_compra(material, texto_breve)
+
+            rows.append({
+                "Sol.pedido": solped,
+                "Pos.": pos,
+                "SOLP + POS": solped + pos,
+                "B": b_val,
+                "eliminada": b_val == "X",
+                "Lib": _g(5),
+                "Fe.solic.": _g(6),
+                "Modif.el": _g(7),
+                "Cantidad": _g(8),
+                "Mon.": _g(9),
+                "Valor total": _g(10),
+                "Solicit.": _g(11),
+                "GCp": _g(12),
+                "Material": material,
+                "Texto breve": texto_breve,
+                "Pedido": _g(15),
+                "Pos._2": _g(16),
+                "I": _g(17),
+                "P": _g(18),
+                "Ce.": _g(19),
+                "Autor": _g(20),
+                "Pos.presup.": _g(21),
+                "Ce.gestor": _g(22),
+                "Fondo": _g(23),
+                "Ctd.conf.": _g(24),
+                "DscrGrCmpr": _g(25),
+                "OrgC": orgc,
+                "TIPO DE COMPRA": tipo,
+                "PAÍS": pais,
+            })
     
     df = pd.DataFrame(rows)
     logger.info(f"ME5A leído: {filepath.name} → {len(df)} filas")

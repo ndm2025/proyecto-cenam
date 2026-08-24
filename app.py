@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import streamlit as st
 import pandas as pd
 import importlib
+import io
 import src.modules.sap_processor as sap_mod
 importlib.reload(sap_mod)
 from src.modules.sap_processor import read_sap_file, detect_file_type, clean_solped, clean_pedido, clean_oferta, read_me5a, build_pospre_map, read_grafos, read_peps, read_sitios
@@ -223,7 +224,7 @@ elif page == "Carga de Archivos":
                 me5a_nuevas["POSPRE"] = me5a_nuevas["SOLP + POS"].map(pospre_map).fillna("")
                 st.session_state["me5a_nuevas"] = me5a_nuevas
                 
-                cols_show = [c for c in ["SOLP + POS", "Sol.pedido", "Pos.", "B", "Material", "Texto breve", "TIPO DE COMPRA", "POSPRE"] if c in me5a_nuevas.columns]
+                cols_show = [c for c in ["SOLP + POS", "Sol.pedido", "Pos.", "B", "Mon.", "Valor total", "Material", "Texto breve", "TIPO DE COMPRA", "OrgC", "PAÍS", "POSPRE"] if c in me5a_nuevas.columns]
                 st.dataframe(me5a_nuevas[cols_show], use_container_width=True)
             else:
                 st.info("No quedan solp+pos nuevas en ME5A")
@@ -256,12 +257,10 @@ elif page == "Carga de Archivos":
             
             st.info(f"Grafos: {len(df_grafos)} | PEPs: {len(df_peps)} | Sitios: {len(df_sitios)}")
             
-            if "solped_nuevas" in st.session_state:
-                me5a_data = st.session_state["solped_nuevas"].copy()
-            elif "me5a_nuevas" in st.session_state:
+            if "me5a_nuevas" in st.session_state:
                 me5a_data = st.session_state["me5a_nuevas"].copy()
             else:
-                st.warning("Primero carga bases SAP y/o ME5A")
+                st.warning("Primero carga la base ME5A para filtrar las solped nuevas")
                 st.stop()
             
             me5a_data = me5a_data.merge(df_grafos[["SOLP + POS", "OPERACION", "GRAFO"]], on="SOLP + POS", how="left")
@@ -277,8 +276,66 @@ elif page == "Carga de Archivos":
             col2.metric("Con PEP", f"{match_peps}/{len(me5a_data)}")
             col3.metric("Con IO/ID", f"{match_io}/{len(me5a_data)}")
             
-            cols_show = [c for c in ["SOLP + POS", "OPERACION", "GRAFO", "PEP", "IO", "ID"] if c in me5a_data.columns]
+            cols_show = [c for c in ["SOLP + POS", "PAÍS", "ID", "IO", "PEP", "GRAFO", "OPERACION", "B", "Mon.", "Valor total", "Material", "Texto breve", "POSPRE"] if c in me5a_data.columns]
             st.dataframe(me5a_data[cols_show], use_container_width=True)
+            
+            FORMAT_COLUMNS = [
+                "Sol.pedidoPos.", "PAÍS", "ID", "IO", "OFERTA", "UT", "SITIO", "PEP",
+                "GRAFO", "OPERACIÓN", "CENTRO", "Sol.pedido", "Pos.", "B", "Lib",
+                "Fe.solic.", "Modif.el", "Cantidad", "Mon.", "Valor total", "Solicit.",
+                "GCp", "Material", "Texto breve", "Pedido", "Pos._2", "I", "P", "Ce.",
+                "Autor", "Pos.presup.", "Ce.gestor", "Fondo", "Ctd.conf.", "DscrGrCmpr",
+                "OrgC", "POSPRE", "CORRELATIVO", "TIPO DE COMPRA", "COMENTARIOS", "OFERTAIDIO",
+            ]
+            ME5A_TO_FORMAT = {
+                "SOLP + POS": "Sol.pedidoPos.", "PAÍS": "PAÍS", "ID": "ID", "IO": "IO",
+                "PEP": "PEP", "GRAFO": "GRAFO", "OPERACION": "OPERACIÓN",
+                "B": "B", "Mon.": "Mon.", "Valor total": "Valor total",
+                "Material": "Material", "Texto breve": "Texto breve",
+                "Sol.pedido": "Sol.pedido", "Pos.": "Pos.", "Lib": "Lib",
+                "Fe.solic.": "Fe.solic.", "Modif.el": "Modif.el", "Cantidad": "Cantidad",
+                "Solicit.": "Solicit.", "GCp": "GCp", "Pedido": "Pedido",
+                "Pos._2": "Pos._2", "I": "I", "P": "P", "Ce.": "Ce.",
+                "Autor": "Autor", "Pos.presup.": "Pos.presup.", "Ce.gestor": "Ce.gestor",
+                "Fondo": "Fondo", "Ctd.conf.": "Ctd.conf.", "DscrGrCmpr": "DscrGrCmpr",
+                "OrgC": "OrgC", "POSPRE": "POSPRE", "TIPO DE COMPRA": "TIPO DE COMPRA",
+            }
+            
+            st.markdown("---")
+            if st.button("Descargar Excel Formato Líneas Nuevas"):
+                export_df = pd.DataFrame(columns=FORMAT_COLUMNS)
+                for _, row in me5a_data.iterrows():
+                    new_row = {}
+                    for src_col, fmt_col in ME5A_TO_FORMAT.items():
+                        if src_col in row.index:
+                            val = row[src_col]
+                            new_row[fmt_col] = "" if pd.isna(val) else val
+                    export_df = pd.concat([export_df, pd.DataFrame([new_row])], ignore_index=True)
+                
+                export_df = export_df.fillna("")
+                
+                PAIS_SHORT = {
+                    "GUATEMALA": "GT", "EL SALVADOR": "SV", "HONDURAS": "HN",
+                    "NICARAGUA": "NI", "COSTA RICA": "CR",
+                }
+                if "PAÍS" in export_df.columns:
+                    export_df["PAÍS"] = export_df["PAÍS"].map(lambda x: PAIS_SHORT.get(str(x).upper(), x))
+                
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+                    export_df.to_excel(writer, sheet_name="Hoja1", index=False)
+                    ws = writer.sheets["Hoja1"]
+                    for i, col in enumerate(export_df.columns):
+                        col_data = export_df[col].astype(str)
+                        max_len = max(col_data.map(len).max(), len(str(col))) + 2
+                        ws.set_column(i, i, min(max_len, 30))
+                
+                st.download_button(
+                    label="Descargar",
+                    data=buffer.getvalue(),
+                    file_name="lineas_nuevas.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
         except Exception as e:
             st.error(f"Error en Líneas Verdes: {type(e).__name__}: {e}")
 
