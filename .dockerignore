@@ -1,0 +1,19 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+.vscode
+.idea
+logs/
+data/raw/*
+data/processed/*
+data/consolidated/*
+data/output/*
+*.txt
+!requirements.txt
+BASES CENAM/
+*.xlsb
+*.xlsx
+*.xls
+Thumbs.db
+.DS_Store

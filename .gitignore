@@ -11,13 +11,11 @@ env/
 venv/
 
 # Data files (too large for git)
-data/raw/*.txt
-data/raw/*.csv
-data/raw/*.xlsb
-data/processed/*.csv
-data/consolidated/*.csv
-data/output/*.csv
-data/output/*.xlsx
+data/raw/*
+data/processed/*
+data/consolidated/*
+data/output/*
+!data/**/.gitkeep
 
 # SAP bases (large files)
 BASES CENAM/
@@ -26,6 +24,10 @@ BASES CENAM/
 *.xlsx
 *.xls
 *.xlsb
+
+# Text files (SAP data, not code)
+*.txt
+!requirements.txt
 
 # Logs
 logs/*.log
