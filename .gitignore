@@ -36,6 +36,9 @@ logs/*.log
 .vscode/
 .idea/
 
+# SSH keys
+*.pem
+
 # OS
 Thumbs.db
 .DS_Store
