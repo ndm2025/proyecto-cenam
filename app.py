@@ -33,6 +33,36 @@ st.set_page_config(
     layout=PAGE_LAYOUT,
 )
 
+USUARIOS = {
+    "norma": "claro2026",
+    "admin": "cenam2026",
+    "usuario1": "cenam123",
+}
+
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+    st.session_state["usuario"] = ""
+
+if not st.session_state["autenticado"]:
+    st.title("🔐 Acceso al Sistema")
+    st.subheader("Seguimiento de Proyectos CENAM")
+    st.markdown("---")
+    
+    with st.form("login"):
+        usuario = st.text_input("Usuario")
+        contrasena = st.text_input("Contraseña", type="password")
+        enviado = st.form_submit_button("Ingresar")
+        
+        if enviado:
+            if usuario in USUARIOS and USUARIOS[usuario] == contrasena:
+                st.session_state["autenticado"] = True
+                st.session_state["usuario"] = usuario
+                st.rerun()
+            else:
+                st.error("Usuario o contraseña incorrectos")
+    
+    st.stop()
+
 
 st.sidebar.title("Navegación")
 page = st.sidebar.radio(
