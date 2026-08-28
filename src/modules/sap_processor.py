@@ -335,9 +335,12 @@ def filtrar_por_pospre(df: pd.DataFrame, quitar_pospre: list[str]) -> pd.DataFra
         return df
     
     df_out = df.copy()
-    pospre_col = "POSPRE" if "POSPRE" in df_out.columns and "POSPRE" in df_out.columns else (
-        "PosPre" if "PosPre" in df_out.columns else None
-    )
+    if "POSPRE" in df_out.columns:
+        pospre_col = "POSPRE"
+    elif "PosPre" in df_out.columns:
+        pospre_col = "PosPre"
+    else:
+        pospre_col = None
     
     if pospre_col is not None:
         df_out = df_out[~df_out[pospre_col].astype(str).str.strip().isin(quitar)]

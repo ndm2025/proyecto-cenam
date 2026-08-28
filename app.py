@@ -102,16 +102,17 @@ if page == "Inicio":
 elif page == "Carga de Archivos":
     st.title("📥 Carga de Archivos SAP")
     st.markdown("---")
-    
-    pais_seleccionado = st.selectbox("Seleccionar país:", PAISES)
+    st.caption("Sube todos los archivos .txt de SAP (un archivo por país). "
+               "El país se detecta automáticamente desde la columna Soc. de cada archivo.")
     
     quitar_pospre_input = st.text_area(
         "Quitar POSPRE de base",
         help="Escribe una o varias POSPRE (separadas por coma o salto de línea) "
-             "que NO se tomarán en cuenta en ningún proceso. Las solp+pos con esas "
-             "POSPRE se excluyen de toda la base.",
-        placeholder="Ej: GT-RM-TR-IPA\nSV-RM-TR-CORE",
-        key=f"quitar_pospre_{pais_seleccionado}",
+             "que NO se tomarán en cuenta en ningún proceso. Cada una empieza con el "
+             "código de su país (GT-, HN-, NI-, CR-, SV-). Las solp+pos con esas "
+             "POSPRE se excluyen de toda la base, sin importar el país.",
+        placeholder="Ej: GT-RM-TR-IPA\nSV-RM-TR-CORE\nHN-RM-RI-GRI",
+        key="quitar_pospre_global",
     )
     quitar_pospre = [p.strip() for p in quitar_pospre_input.replace(",", "\n").splitlines() if p.strip()]
     
@@ -119,7 +120,7 @@ elif page == "Carga de Archivos":
         "Subir archivos .txt de SAP",
         type=["txt", "csv"],
         accept_multiple_files=True,
-        key=f"uploader_{pais_seleccionado}",
+        key="uploader_sap_global",
     )
     
     all_clean = []
@@ -137,7 +138,7 @@ elif page == "Carga de Archivos":
             
             if file_type == "solped":
                 try:
-                    df_clean, msg = clean_solped(df, pais_seleccionado)
+                    df_clean, msg = clean_solped(df, "")
                 except Exception as e:
                     st.error(f"Error en clean_solped: {type(e).__name__}: {e}")
                     st.stop()
@@ -147,7 +148,8 @@ elif page == "Carga de Archivos":
                     if quitar_pospre:
                         df_clean = filtrar_por_pospre(df_clean, quitar_pospre)
                     st.success(msg)
-                    save_path = PROCESSED_DIR / f"{pais_seleccionado}_{file.name.replace('.txt', '.csv')}"
+                    pais_det = df_clean["PAÍS"].astype(str).str.strip().iloc[0] if "PAÍS" in df_clean.columns and not df_clean.empty else ""
+                    save_path = PROCESSED_DIR / f"{pais_det}_{file.name.replace('.txt', '.csv')}"
                     df_clean.to_csv(save_path, index=False, encoding="utf-8-sig")
                     cols_mostrar = ["SOLP + POS", "Nºdoc.ref.", "Pos.", "PosPre", "Cl.impte.", "Tp.valor", "PAÍS"]
                     cols_show = [c for c in cols_mostrar if c in df_clean.columns]
