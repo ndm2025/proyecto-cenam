@@ -186,8 +186,15 @@ elif page == "Carga de Archivos":
                 consolidado_keys = set(df_consolidado[col_key].astype(str).str.strip())
                 solped_nuevas = st.session_state["solped_nuevas"].copy()
                 
-                mask_en_consolidado = solped_nuevas["SOLP + POS"].isin(consolidado_keys)
-                nuevas = solped_nuevas[~mask_en_consolidado]
+                # Detectar y separar solp+pos duplicadas en las bases
+                solp_col = "SOLP + POS"
+                dup_mask = solped_nuevas[solp_col].duplicated(keep=False)
+                solped_duplicadas = solped_nuevas[dup_mask].copy()
+                solped_unicas = solped_nuevas[~dup_mask].copy()
+                
+                # Contar únicas (como en Excel, sin duplicados)
+                mask_en_consolidado = solped_unicas[solp_col].isin(consolidado_keys)
+                nuevas = solped_unicas[~mask_en_consolidado]
                 
                 df_elim = pd.read_excel(temp_excel, sheet_name="Eliminadas", engine="pyxlsb")
                 col_elim = df_elim.iloc[:, 1]
@@ -205,17 +212,26 @@ elif page == "Carga de Archivos":
                 entrada_vals = entrada_vals[pd.to_numeric(entrada_vals, errors="coerce").notna()]
                 entrada_keys = set(entrada_vals.astype(int).astype(str))
                 
-                mask_en_entrada = despues_elim["SOLP + POS"].astype(str).str.strip().isin(entrada_keys)
+                mask_en_entrada = despues_elim[solp_col].astype(str).str.strip().isin(entrada_keys)
                 filtradas = despues_elim[~mask_en_entrada]
                 entrada_encontradas = despues_elim[mask_en_entrada]
                 
                 st.markdown("### Resultado")
                 col_a, col_b, col_c, col_d, col_e = st.columns(5)
-                col_a.metric("Solped totales", len(solped_nuevas))
-                col_b.metric("En CENAM", int(mask_en_consolidado.sum()))
+                col_a.metric("Solped totales de Bases", len(solped_unicas))
+                col_b.metric("Solped que estan cenam", int(mask_en_consolidado.sum()))
                 col_c.metric("En Eliminadas", len(eliminadas_encontradas))
                 col_d.metric("En Entrada Final", len(entrada_encontradas))
-                col_e.metric("Nuevas finales", len(filtradas))
+                col_e.metric("Solped que No estan en cenam", len(filtradas))
+                
+                if not solped_duplicadas.empty:
+                    st.warning(f"Se encontraron {solped_duplicadas[solp_col].nunique()} solp+pos duplicadas en las bases (contadas como únicas).")
+                    with st.expander("Ver solp+pos duplicadas en bases"):
+                        st.dataframe(
+                            solped_duplicadas[[c for c in ["SOLP + POS", "Nºdoc.ref.", "Pos.", "PAÍS"] if c in solped_duplicadas.columns]]
+                            .drop_duplicates(subset=[solp_col]),
+                            use_container_width=True,
+                        )
                 
                 if not filtradas.empty:
                     st.success(f"Solped nuevas para agregar: {len(filtradas)}")
