@@ -186,11 +186,15 @@ elif page == "Carga de Archivos":
                 consolidado_keys = set(df_consolidado[col_key].astype(str).str.strip())
                 solped_nuevas = st.session_state["solped_nuevas"].copy()
                 
-                # Detectar y separar solp+pos duplicadas en las bases
+                # Detectar y separar solp+pos duplicadas en las bases.
+                # Si una solp+pos aparece 2+ veces, se conserva solo 1 original
+                # y las demás (extras) se descartan para contar únicas.
                 solp_col = "SOLP + POS"
                 dup_mask = solped_nuevas[solp_col].duplicated(keep=False)
-                solped_duplicadas = solped_nuevas[dup_mask].copy()
-                solped_unicas = solped_nuevas[~dup_mask].copy()
+                solped_repetidas = solped_nuevas[dup_mask].copy()
+                solped_duplicadas = solped_repetidas.drop_duplicates(subset=[solp_col], keep="first")
+                # Conservar siempre una original de cada solp+pos
+                solped_unicas = solped_nuevas.drop_duplicates(subset=[solp_col], keep="first").copy()
                 
                 # Contar únicas (como en Excel, sin duplicados)
                 mask_en_consolidado = solped_unicas[solp_col].isin(consolidado_keys)
