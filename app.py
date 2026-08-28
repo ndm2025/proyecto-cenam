@@ -239,6 +239,7 @@ elif page == "Carga de Archivos":
                 
                 if not filtradas.empty:
                     st.success(f"Solped nuevas para agregar: {len(filtradas)}")
+                    st.session_state["solped_no_cenam"] = filtradas[["SOLP + POS"]].copy()
                     cols_show = [c for c in ["SOLP + POS", "Nºdoc.ref.", "Pos.", "PAÍS"] if c in filtradas.columns]
                     st.dataframe(filtradas[cols_show], use_container_width=True)
                 else:
@@ -266,8 +267,18 @@ elif page == "Carga de Archivos":
             
             df_me5a_filtered = df_me5a[~df_me5a["eliminada"]]
             eliminadas_b = df_me5a[df_me5a["eliminada"]]
+            total_me5a_filtered = len(df_me5a_filtered)
             
-            if uploaded_excel:
+            # Si ya se calculó "Solped que No estan en cenam" en Comparar con
+            # Consolidado, usar SOLO esas solp+pos y descartar el resto de la base.
+            no_cenam_frame = st.session_state.get("solped_no_cenam")
+            if no_cenam_frame is not None and not no_cenam_frame.empty:
+                no_cenam_keys = set(no_cenam_frame["SOLP + POS"].astype(str).str.strip())
+                descartadas = df_me5a_filtered[~df_me5a_filtered["SOLP + POS"].astype(str).str.strip().isin(no_cenam_keys)]
+                df_me5a_filtered = df_me5a_filtered[df_me5a_filtered["SOLP + POS"].astype(str).str.strip().isin(no_cenam_keys)].copy()
+                me5a_nuevas = df_me5a_filtered
+                en_cenam = set()
+            elif uploaded_excel:
                 temp_excel = RAW_DIR / uploaded_excel.name
                 df_cenam = pd.read_excel(temp_excel, sheet_name="CENAM", engine="pyxlsb")
                 cenam_keys = set(df_cenam["solp + pos"].astype(str).str.strip())
@@ -280,10 +291,14 @@ elif page == "Carga de Archivos":
                 en_cenam = set()
             
             st.markdown("### Resultado ME5A")
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             col1.metric("Total ME5A", len(df_me5a))
             col2.metric("Borradas (B=X)", len(eliminadas_b))
-            col3.metric("En CENAM", len(en_cenam))
+            if no_cenam_frame is not None and not no_cenam_frame.empty:
+                col3.metric("Descarte (no en 'No estan cenam')", len(descartadas))
+                col4.metric("ME5A que se usan", len(me5a_nuevas))
+            else:
+                col3.metric("En CENAM", len(en_cenam))
             
             if not me5a_nuevas.empty:
                 quitar_pospre = st.session_state.get("quitar_pospre", [])
