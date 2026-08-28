@@ -291,7 +291,7 @@ def _clasificar_tipo_compra(material: str, texto_breve: str) -> str:
     return "HARDWARE"
 
 
-def build_pospre_map(raw_dir: Path, quitar_pospre: list[str] = None) -> dict[str, str]:
+def build_pospre_map(raw_dir: Path, quitar_pospre: list[str] = None, claves_interes: set = None) -> dict[str, str]:
     """
     Lee los archivos .txt SAP originales y construye un mapa
     SOLP + POS → PosPre. Si se indican POSPRE a quitar, esas
@@ -301,6 +301,8 @@ def build_pospre_map(raw_dir: Path, quitar_pospre: list[str] = None) -> dict[str
         raw_dir: carpeta con archivos .txt SAP.
         quitar_pospre: lista de POSPRE a excluir (se elimina la
             SOLP + POS completa del mapa).
+        claves_interes: conjunto opcional de SOLP + POS que nos interesan.
+            Si se pasa, solo se buscan POSPRE para esas claves (mejor rendimiento).
     
     Returns:
         dict SOLP + POS → PosPre.
@@ -310,13 +312,28 @@ def build_pospre_map(raw_dir: Path, quitar_pospre: list[str] = None) -> dict[str
     for txt_file in raw_dir.glob("*.txt"):
         try:
             df = read_sap_file(txt_file)
-            if "PosPre" in df.columns and "Nºdoc.ref." in df.columns and "Pos." in df.columns:
-                for _, row in df.iterrows():
-                    solp_pos = str(row["Nºdoc.ref."]).strip() + str(row["Pos."]).strip()
-                    pospre = str(row["PosPre"]).strip()
-                    if pospre in quitar:
-                        continue
-                    pospre_map[solp_pos] = pospre
+            if "PosPre" not in df.columns or "Nºdoc.ref." not in df.columns:
+                continue
+            # Misma lógica de columna de posición que clean_solped:
+            # priorizar PosRf si existe, si no Pos.
+            pos_col = "PosRf" if "PosRf" in df.columns else "Pos." if "Pos." in df.columns else None
+            if pos_col is None:
+                continue
+            ref_series = df["Nºdoc.ref."].astype(str).str.strip()
+            pos_series = df[pos_col].astype(str).str.strip()
+            pospre_series = df["PosPre"].astype(str).str.strip()
+            if claves_interes is not None:
+                # Solo construir claves que nos interesan (rendimiento)
+                clave = ref_series + pos_series
+                mask = clave.isin(claves_interes)
+                if not mask.any():
+                    continue
+                ref_series, pos_series, pospre_series = ref_series[mask], pos_series[mask], pospre_series[mask]
+            for r, p, pp in zip(ref_series, pos_series, pospre_series):
+                solp_pos = r + p
+                if pp in quitar:
+                    continue
+                pospre_map[solp_pos] = pp
         except Exception:
             continue
     return pospre_map

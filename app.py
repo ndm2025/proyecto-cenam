@@ -64,6 +64,38 @@ if not st.session_state["autenticado"]:
     st.stop()
 
 
+def _pospre_cache_context() -> tuple:
+    """Clave basada en los archivos .txt actuales para invalidar la caché de POSPRE."""
+    if RAW_DIR.exists():
+        infos = []
+        for f in RAW_DIR.glob("*.txt"):
+            try:
+                infos.append((f.name, f.stat().st_size, f.stat().st_mtime_ns))
+            except OSError:
+                pass
+        return tuple(infos)
+    return ()
+
+
+def _get_pospre_map(claves: set, quitar_pospre: list) -> dict:
+    """Devuelve el mapa SOLP+POS → PosPre, cacheado en session_state.
+
+    Se recalcula solo si cambian los archivos .txt o la lista de POSPRE a quitar.
+    """
+    ctx = (_pospre_cache_context(), tuple(sorted(quitar_pospre or [])))
+    cache_claves = st.session_state.get("_pospre_cache_claves", None)
+    cached = st.session_state.get("_pospre_cached_map", None)
+
+    if cache_claves == ctx and cached is not None:
+        # Reutilizar el mapa completo cacheado, solo filtrar por claves de interés
+        return {k: cached[k] for k in set(claves).intersection(cached)}
+
+    mapa = build_pospre_map(RAW_DIR, quitar_pospre)
+    st.session_state["_pospre_cached_map"] = mapa
+    st.session_state["_pospre_cache_claves"] = ctx
+    return {k: mapa[k] for k in set(claves).intersection(mapa)}
+
+
 st.sidebar.title("Navegación")
 page = st.sidebar.radio(
     "Ir a:",
@@ -302,7 +334,8 @@ elif page == "Carga de Archivos":
             
             if not me5a_nuevas.empty:
                 quitar_pospre = st.session_state.get("quitar_pospre", [])
-                pospre_map = build_pospre_map(RAW_DIR, quitar_pospre)
+                claves_interes = set(me5a_nuevas["SOLP + POS"].astype(str).str.strip())
+                pospre_map = _get_pospre_map(claves_interes, quitar_pospre)
                 me5a_nuevas = me5a_nuevas.copy()
                 me5a_nuevas["POSPRE"] = me5a_nuevas["SOLP + POS"].map(pospre_map).fillna("")
                 if quitar_pospre:
