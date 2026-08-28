@@ -104,14 +104,19 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     Normaliza nombres de columnas que varían entre países.
     Presupuesto → Presup.
     Clase de importe → Cl.impte.
+    
+    Evita crear nombres duplicados: si el nombre de destino ya existe en el
+    DataFrame, no se renombra la columna fuente.
     """
     col_map = {}
     for col in df.columns:
         clean = col.strip()
         if clean == "Presupuesto":
-            col_map[col] = "Presup."
+            if "Presup." not in df.columns:
+                col_map[col] = "Presup."
         elif clean == "Clase de importe":
-            col_map[col] = "Cl.impte."
+            if "Cl.impte." not in df.columns:
+                col_map[col] = "Cl.impte."
     if col_map:
         df = df.rename(columns=col_map)
     return df
