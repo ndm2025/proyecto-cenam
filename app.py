@@ -385,18 +385,39 @@ elif page == "Carga de Archivos":
             if quitar_pospre:
                 me5a_data = filtrar_por_pospre(me5a_data, quitar_pospre)
             
-            me5a_data = me5a_data.merge(df_grafos[["SOLP + POS", "OPERACION", "GRAFO"]], on="SOLP + POS", how="left")
-            me5a_data = me5a_data.merge(df_peps[["GRAFO", "PEP"]], on="GRAFO", how="left")
-            me5a_data = me5a_data.merge(df_sitios[["PEP", "IO", "ID"]], on="PEP", how="left")
+            # Encadenamiento progresivo partiendo de Resultados ME5A.
+            # Paso 1: buscar en GRAFOS la OPERACION y GRAFO de cada solp de ME5A.
+            # Los GRAFOS cuyas solp+pos no están en ME5A se descartan.
+            me5a_solps = set(me5a_data["SOLP + POS"].astype(str).str.strip())
+            grafos_con_solp = df_grafos[df_grafos["SOLP + POS"].astype(str).str.strip().isin(me5a_solps)]
+            grafos_descartados = len(df_grafos) - len(grafos_con_solp)
+            me5a_data = me5a_data.merge(grafos_con_solp[["SOLP + POS", "OPERACION", "GRAFO"]], on="SOLP + POS", how="left")
+            
+            # Paso 2: usar SOLO los GRAFO obtenidos para buscar el PEP en PEPS.
+            grafos_encontrados = set(grafos_con_solp["GRAFO"].astype(str).str.strip())
+            peps_con_grafo = df_peps[df_peps["GRAFO"].astype(str).str.strip().isin(grafos_encontrados)]
+            peps_descartados = len(df_peps) - len(peps_con_grafo)
+            me5a_data = me5a_data.merge(peps_con_grafo[["GRAFO", "PEP"]], on="GRAFO", how="left")
+            
+            # Paso 3: usar SOLO los PEP obtenidos para buscar IO e ID en SITIOS.
+            peps_encontrados = set(peps_con_grafo["PEP"].astype(str).str.strip())
+            sitios_con_pep = df_sitios[df_sitios["PEP"].astype(str).str.strip().isin(peps_encontrados)]
+            sitios_descartados = len(df_sitios) - len(sitios_con_pep)
+            me5a_data = me5a_data.merge(sitios_con_pep[["PEP", "IO", "ID"]], on="PEP", how="left")
             
             match_grafos = me5a_data["GRAFO"].notna().sum()
             match_peps = me5a_data["PEP"].notna().sum()
             match_io = me5a_data["IO"].notna().sum()
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Con GRAFO", f"{match_grafos}/{len(me5a_data)}")
-            col2.metric("Con PEP", f"{match_peps}/{len(me5a_data)}")
-            col3.metric("Con IO/ID", f"{match_io}/{len(me5a_data)}")
+            st.markdown("### Resultado Líneas Verdes")
+            st.caption("Partiendo de los Resultados ME5A, se encadena: GRAFOS → PEPS → SITIOS. Los registros de estas bases cuyo vínculo no esté en las solp+pos de ME5A se descartan.")
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            col1.metric("Grafos descartados", grafos_descartados, help="GRAFOS cuyas solp+pos no están en Resultados ME5A")
+            col2.metric("PEPs descartados", peps_descartados, help="PEPS cuyos GRAFO no se obtuvieron de ME5A")
+            col3.metric("Sitios descartados", sitios_descartados, help="SITIOS cuyos PEP no se obtuvieron de los GRAFO")
+            col4.metric("Con GRAFO", f"{match_grafos}/{len(me5a_data)}")
+            col5.metric("Con PEP", f"{match_peps}/{len(me5a_data)}")
+            col6.metric("Con IO/ID", f"{match_io}/{len(me5a_data)}")
             
             cols_show = [c for c in ["SOLP + POS", "PAÍS", "ID", "IO", "PEP", "GRAFO", "OPERACION", "B", "Mon.", "Valor total", "Material", "Texto breve", "POSPRE"] if c in me5a_data.columns]
             st.dataframe(me5a_data[cols_show], use_container_width=True)
