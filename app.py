@@ -13,7 +13,7 @@ import importlib
 import io
 import src.modules.sap_processor as sap_mod
 importlib.reload(sap_mod)
-from src.modules.sap_processor import read_sap_file, detect_file_type, clean_solped, clean_pedido, clean_oferta, read_me5a, build_pospre_map, filtrar_por_pospre, read_grafos, read_peps, read_sitios
+from src.modules.sap_processor import read_sap_file, detect_file_type, clean_solped, clean_pedido, clean_oferta, read_me5a, build_pospre_map, filtrar_por_pospre, read_grafos, read_peps, read_sitios, read_me5j
 
 from config.settings import APP_TITLE, APP_ICON, PAGE_LAYOUT, PAISES, RAW_DIR, PROCESSED_DIR
 from src.modules.consolidator import (
@@ -352,13 +352,15 @@ elif page == "Carga de Archivos":
     st.markdown("---")
     st.subheader("🌿 Líneas Verdes")
     
-    col_g, col_p, col_s = st.columns(3)
+    col_g, col_p, col_s, col_j = st.columns(4)
     with col_g:
         up_grafos = st.file_uploader("GRAFOS (.txt)", type=["txt"], key="up_grafos")
     with col_p:
         up_peps = st.file_uploader("PEPs (.txt)", type=["txt"], key="up_peps")
     with col_s:
         up_sitios = st.file_uploader("SITIOS (.txt)", type=["txt"], key="up_sitios")
+    with col_j:
+        up_me5j = st.file_uploader("ME5J (.txt)", type=["txt"], key="up_me5j", help="Opcional: para buscar el PEP por SOLP+POS (columna Elemento PEP). Si el PEP no está aquí, se busca en la base PEPs.")
     
     if up_grafos and up_peps and up_sitios:
         try:
@@ -369,11 +371,19 @@ elif page == "Carga de Archivos":
                 with open(p, "wb") as f:
                     f.write(up.getbuffer())
             
+            if up_me5j:
+                p_me5j = RAW_DIR / up_me5j.name
+                with open(p_me5j, "wb") as f:
+                    f.write(up_me5j.getbuffer())
+                df_me5j = read_me5j(p_me5j)
+            else:
+                df_me5j = pd.DataFrame(columns=["SOLP + POS", "PEP", "GRAFO"])
+            
             df_grafos = read_grafos(p_grafos)
             df_peps = read_peps(p_peps)
             df_sitios = read_sitios(p_sitios)
             
-            st.info(f"Grafos: {len(df_grafos)} | PEPs: {len(df_peps)} | Sitios: {len(df_sitios)}")
+            st.info(f"Grafos: {len(df_grafos)} | PEPs: {len(df_peps)} | Sitios: {len(df_sitios)} | ME5J: {len(df_me5j)}")
             
             if "me5a_nuevas" in st.session_state:
                 me5a_data = st.session_state["me5a_nuevas"].copy()
@@ -393,15 +403,44 @@ elif page == "Carga de Archivos":
             grafos_descartados = len(df_grafos) - len(grafos_con_solp)
             me5a_data = me5a_data.merge(grafos_con_solp[["SOLP + POS", "OPERACION", "GRAFO"]], on="SOLP + POS", how="left")
             
-            # Paso 2: usar SOLO los GRAFO obtenidos para buscar el PEP en PEPS.
-            grafos_encontrados = set(grafos_con_solp["GRAFO"].astype(str).str.strip())
-            peps_con_grafo = df_peps[df_peps["GRAFO"].astype(str).str.strip().isin(grafos_encontrados)]
-            peps_descartados = len(df_peps) - len(peps_con_grafo)
-            me5a_data = me5a_data.merge(peps_con_grafo[["GRAFO", "PEP"]], on="GRAFO", how="left")
+            # Paso 2: buscar el PEP. Primero en ME5J por SOLP + POS (columna
+            # Elem.PEP). Para los que no tengan PEP ahí, buscarlo en la base
+            # PEPs por GRAFO.
+            if up_me5j and not df_me5j.empty and "PEP" in df_me5j.columns:
+                me5j_map = {}
+                for _, r in df_me5j.iterrows():
+                    k = str(r["SOLP + POS"]).strip()
+                    pep = str(r["PEP"]).strip()
+                    if k and pep and k not in me5j_map:
+                        me5j_map[k] = pep
+                peps_de_me5j = me5a_data["SOLP + POS"].astype(str).str.strip().map(me5j_map)
+                me5a_data["PEP"] = peps_de_me5j.fillna("")
+                pep_desde_me5j = (me5a_data["PEP"] != "").sum()
+            else:
+                me5a_data["PEP"] = ""
+                pep_desde_me5j = 0
             
-            # Paso 3: usar SOLO los PEP obtenidos para buscar IO e ID en SITIOS.
-            peps_encontrados = set(peps_con_grafo["PEP"].astype(str).str.strip())
-            sitios_con_pep = df_sitios[df_sitios["PEP"].astype(str).str.strip().isin(peps_encontrados)]
+            # Solo faltan por resolver los PEP que no se obtuvieron de ME5J.
+            sin_pep = me5a_data[me5a_data["PEP"].astype(str).str.strip() == ""]
+            con_pep = me5a_data[me5a_data["PEP"].astype(str).str.strip() != ""]
+            if not sin_pep.empty:
+                grafos_sin_pep = set(sin_pep["GRAFO"].astype(str).str.strip())
+                grafos_sin_pep.discard("")
+                grafos_encontrados = set(grafos_con_solp["GRAFO"].astype(str).str.strip())
+                peps_con_grafo = df_peps[df_peps["GRAFO"].astype(str).str.strip().isin(grafos_encontrados)]
+                resolved = sin_pep.merge(peps_con_grafo[["GRAFO", "PEP"]], on="GRAFO", how="left", suffixes=("", "_pep"))
+                if "PEP_pep" in resolved.columns:
+                    resolved["PEP"] = resolved["PEP_pep"]
+                    resolved = resolved.drop(columns=["PEP_pep"])
+                sin_pep = resolved
+            peps_descartados = len(df_peps) - len(df_peps[df_peps["GRAFO"].astype(str).str.strip().isin(set(grafos_con_solp["GRAFO"].astype(str).str.strip()))])
+            me5a_data = pd.concat([con_pep, sin_pep], ignore_index=True)
+            
+            # Paso 3: usar SOLO los PEP obtenidos (de ME5J o de PEPs) para buscar
+            # IO e ID en SITIOS.
+            peps_encontrados = set(me5a_data["PEP"].astype(str).str.strip())
+            peps_encontrados.discard("")
+            sitios_con_pep = df_sitios[df_sitios["PEP"].astype(str).str.strip().isin(peps_encontrados)] if peps_encontrados else df_sitios.iloc[0:0]
             sitios_descartados = len(df_sitios) - len(sitios_con_pep)
             me5a_data = me5a_data.merge(sitios_con_pep[["PEP", "IO", "ID"]], on="PEP", how="left")
             
@@ -410,14 +449,15 @@ elif page == "Carga de Archivos":
             match_io = me5a_data["IO"].notna().sum()
             
             st.markdown("### Resultado Líneas Verdes")
-            st.caption("Partiendo de los Resultados ME5A, se encadena: GRAFOS → PEPS → SITIOS. Los registros de estas bases cuyo vínculo no esté en las solp+pos de ME5A se descartan.")
-            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            st.caption("Partiendo de los Resultados ME5A, se encadena: GRAFOS → (ME5J → PEPS) → SITIOS. El PEP se busca primero en ME5J por SOLP+POS y, si no está ahí, en PEPS por GRAFO. Los registros cuyo vínculo no esté en las solp+pos de ME5A se descartan.")
+            col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
             col1.metric("Grafos descartados", grafos_descartados, help="GRAFOS cuyas solp+pos no están en Resultados ME5A")
             col2.metric("PEPs descartados", peps_descartados, help="PEPS cuyos GRAFO no se obtuvieron de ME5A")
             col3.metric("Sitios descartados", sitios_descartados, help="SITIOS cuyos PEP no se obtuvieron de los GRAFO")
-            col4.metric("Con GRAFO", f"{match_grafos}/{len(me5a_data)}")
-            col5.metric("Con PEP", f"{match_peps}/{len(me5a_data)}")
-            col6.metric("Con IO/ID", f"{match_io}/{len(me5a_data)}")
+            col4.metric("PEP desde ME5J", pep_desde_me5j, help="PEP encontrados directamente en la base ME5J por SOLP+POS")
+            col5.metric("Con GRAFO", f"{match_grafos}/{len(me5a_data)}")
+            col6.metric("Con PEP", f"{match_peps}/{len(me5a_data)}")
+            col7.metric("Con IO/ID", f"{match_io}/{len(me5a_data)}")
             
             cols_show = [c for c in ["SOLP + POS", "PAÍS", "ID", "IO", "PEP", "GRAFO", "OPERACION", "B", "Mon.", "Valor total", "Material", "Texto breve", "POSPRE"] if c in me5a_data.columns]
             st.dataframe(me5a_data[cols_show], use_container_width=True)

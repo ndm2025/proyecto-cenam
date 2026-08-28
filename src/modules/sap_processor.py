@@ -491,6 +491,33 @@ def read_sitios(filepath: Path) -> pd.DataFrame:
     return df
 
 
+def read_me5j(filepath: Path) -> pd.DataFrame:
+    """
+    Lee archivo ME5J y extrae SOLP + POS y Elem.PEP (además de Grafo si existe).
+
+    El PEP encontrado aquí sirve como alternativa a leerlo en la base PEPs:
+    a veces el elemento PEP ya viene en la base ME5J.
+    """
+    col_map, data = _parse_sap_file(filepath, ["Sol.pedido", "Elem.PEP"])
+
+    rows = []
+    for r in data:
+        solped = r[col_map["Sol.pedido"]].strip() if col_map.get("Sol.pedido") is not None and col_map["Sol.pedido"] < len(r) else ""
+        pos = r[col_map["Pos."]].strip() if col_map.get("Pos.") is not None and col_map["Pos."] < len(r) else ""
+        elem_pep = r[col_map["Elem.PEP"]].strip() if col_map.get("Elem.PEP") is not None and col_map["Elem.PEP"] < len(r) else ""
+        grafo = r[col_map["Grafo"]].strip() if col_map.get("Grafo") is not None and col_map["Grafo"] < len(r) else ""
+        if solped.isdigit() and pos.isdigit():
+            rows.append({
+                "SOLP + POS": solped + pos,
+                "PEP": elem_pep,
+                "GRAFO": grafo,
+            })
+
+    df = pd.DataFrame(rows)
+    logger.info(f"ME5J leído: {filepath.name} → {len(df)} filas")
+    return df
+
+
 def clean_pedido(df: pd.DataFrame, pais: str) -> pd.DataFrame:
     """
     Limpia y transforma datos de pedidos de un país.
