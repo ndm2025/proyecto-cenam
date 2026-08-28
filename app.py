@@ -13,7 +13,7 @@ import importlib
 import io
 import src.modules.sap_processor as sap_mod
 importlib.reload(sap_mod)
-from src.modules.sap_processor import read_sap_file, detect_file_type, clean_solped, clean_pedido, clean_oferta, read_me5a, build_pospre_map, read_grafos, read_peps, read_sitios
+from src.modules.sap_processor import read_sap_file, detect_file_type, clean_solped, clean_pedido, clean_oferta, read_me5a, build_pospre_map, filtrar_por_pospre, read_grafos, read_peps, read_sitios
 
 from config.settings import APP_TITLE, APP_ICON, PAGE_LAYOUT, PAISES, RAW_DIR, PROCESSED_DIR
 from src.modules.consolidator import (
@@ -105,6 +105,16 @@ elif page == "Carga de Archivos":
     
     pais_seleccionado = st.selectbox("Seleccionar país:", PAISES)
     
+    quitar_pospre_input = st.text_area(
+        "Quitar POSPRE de base",
+        help="Escribe una o varias POSPRE (separadas por coma o salto de línea) "
+             "que NO se tomarán en cuenta en ningún proceso. Las solp+pos con esas "
+             "POSPRE se excluyen de toda la base.",
+        placeholder="Ej: GT-RM-TR-IPA\nSV-RM-TR-CORE",
+        key=f"quitar_pospre_{pais_seleccionado}",
+    )
+    quitar_pospre = [p.strip() for p in quitar_pospre_input.replace(",", "\n").splitlines() if p.strip()]
+    
     uploaded_files = st.file_uploader(
         "Subir archivos .txt de SAP",
         type=["txt", "csv"],
@@ -115,6 +125,7 @@ elif page == "Carga de Archivos":
     all_clean = []
     if uploaded_files:
         st.success(f"Archivos cargados: {len(uploaded_files)}")
+        st.caption(f"POSPRE a quitar: {', '.join(quitar_pospre) if quitar_pospre else 'Ninguna'}")
         
         for file in uploaded_files:
             temp_path = RAW_DIR / file.name
@@ -133,10 +144,12 @@ elif page == "Carga de Archivos":
                 if df_clean.empty:
                     st.warning(msg)
                 else:
+                    if quitar_pospre:
+                        df_clean = filtrar_por_pospre(df_clean, quitar_pospre)
                     st.success(msg)
                     save_path = PROCESSED_DIR / f"{pais_seleccionado}_{file.name.replace('.txt', '.csv')}"
                     df_clean.to_csv(save_path, index=False, encoding="utf-8-sig")
-                    cols_mostrar = ["SOLP + POS", "Nºdoc.ref.", "Pos.", "Cl.impte.", "Tp.valor", "PAÍS"]
+                    cols_mostrar = ["SOLP + POS", "Nºdoc.ref.", "Pos.", "PosPre", "Cl.impte.", "Tp.valor", "PAÍS"]
                     cols_show = [c for c in cols_mostrar if c in df_clean.columns]
                     st.dataframe(df_clean[cols_show], use_container_width=True)
                     all_clean.append(df_clean)
@@ -145,6 +158,8 @@ elif page == "Carga de Archivos":
     
     if all_clean:
         st.session_state["solped_nuevas"] = pd.concat(all_clean, ignore_index=True)
+    st.session_state["quitar_pospre"] = quitar_pospre
+    st.session_state["quitar_pospre_input"] = quitar_pospre_input
     
     st.markdown("---")
     st.subheader("🔍 Comparar con Consolidado")
@@ -249,9 +264,12 @@ elif page == "Carga de Archivos":
             col3.metric("En CENAM", len(en_cenam))
             
             if not me5a_nuevas.empty:
-                pospre_map = build_pospre_map(RAW_DIR)
+                quitar_pospre = st.session_state.get("quitar_pospre", [])
+                pospre_map = build_pospre_map(RAW_DIR, quitar_pospre)
                 me5a_nuevas = me5a_nuevas.copy()
                 me5a_nuevas["POSPRE"] = me5a_nuevas["SOLP + POS"].map(pospre_map).fillna("")
+                if quitar_pospre:
+                    me5a_nuevas = filtrar_por_pospre(me5a_nuevas, quitar_pospre)
                 st.session_state["me5a_nuevas"] = me5a_nuevas
                 
                 cols_show = [c for c in ["SOLP + POS", "Sol.pedido", "Pos.", "B", "Mon.", "Valor total", "Material", "Texto breve", "TIPO DE COMPRA", "OrgC", "PAÍS", "POSPRE"] if c in me5a_nuevas.columns]
@@ -292,6 +310,10 @@ elif page == "Carga de Archivos":
             else:
                 st.warning("Primero carga la base ME5A para filtrar las solped nuevas")
                 st.stop()
+            
+            quitar_pospre = st.session_state.get("quitar_pospre", [])
+            if quitar_pospre:
+                me5a_data = filtrar_por_pospre(me5a_data, quitar_pospre)
             
             me5a_data = me5a_data.merge(df_grafos[["SOLP + POS", "OPERACION", "GRAFO"]], on="SOLP + POS", how="left")
             me5a_data = me5a_data.merge(df_peps[["GRAFO", "PEP"]], on="GRAFO", how="left")

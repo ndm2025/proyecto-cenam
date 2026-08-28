@@ -291,11 +291,21 @@ def _clasificar_tipo_compra(material: str, texto_breve: str) -> str:
     return "HARDWARE"
 
 
-def build_pospre_map(raw_dir: Path) -> dict[str, str]:
+def build_pospre_map(raw_dir: Path, quitar_pospre: list[str] = None) -> dict[str, str]:
     """
     Lee los archivos .txt SAP originales y construye un mapa
-    SOLP + POS → PosPre.
+    SOLP + POS → PosPre. Si se indican POSPRE a quitar, esas
+    SOLP + POS no se incluyen en el mapa.
+    
+    Args:
+        raw_dir: carpeta con archivos .txt SAP.
+        quitar_pospre: lista de POSPRE a excluir (se elimina la
+            SOLP + POS completa del mapa).
+    
+    Returns:
+        dict SOLP + POS → PosPre.
     """
+    quitar = set(p.strip() for p in (quitar_pospre or []) if p and p.strip())
     pospre_map = {}
     for txt_file in raw_dir.glob("*.txt"):
         try:
@@ -303,10 +313,38 @@ def build_pospre_map(raw_dir: Path) -> dict[str, str]:
             if "PosPre" in df.columns and "Nºdoc.ref." in df.columns and "Pos." in df.columns:
                 for _, row in df.iterrows():
                     solp_pos = str(row["Nºdoc.ref."]).strip() + str(row["Pos."]).strip()
-                    pospre_map[solp_pos] = str(row["PosPre"]).strip()
+                    pospre = str(row["PosPre"]).strip()
+                    if pospre in quitar:
+                        continue
+                    pospre_map[solp_pos] = pospre
         except Exception:
             continue
     return pospre_map
+
+
+def filtrar_por_pospre(df: pd.DataFrame, quitar_pospre: list[str]) -> pd.DataFrame:
+    """
+    Elimina filas del DataFrame cuya POSPRE esté en la lista a quitar.
+    
+    Si el DataFrame tiene columna 'POSPRE', filtra por ella.
+    Si tiene 'PosPre' (de la base SAP), filtra por esa columna.
+    Retorna el DataFrame sin las filas cuyas POSPRE estén excluidas.
+    """
+    quitar = set(p.strip() for p in (quitar_pospre or []) if p and p.strip())
+    if not quitar:
+        return df
+    
+    df_out = df.copy()
+    pospre_col = "POSPRE" if "POSPRE" in df_out.columns and "POSPRE" in df_out.columns else (
+        "PosPre" if "PosPre" in df_out.columns else None
+    )
+    
+    if pospre_col is not None:
+        df_out = df_out[~df_out[pospre_col].astype(str).str.strip().isin(quitar)]
+    
+    df_out = df_out.reset_index(drop=True)
+    logger.info(f"POSPRE quitar: {quitar} → quedan {len(df_out)} filas de {len(df)}")
+    return df_out
 
 
 def _find_header_row(filepath: Path, delimiter: str = "\t", encoding: str = "latin-1", extra_headers: list = None) -> int:
